@@ -47,14 +47,14 @@ def cleanup_files():
             file_path = os.path.join(DOWNLOAD_DIR, filename)
             if os.path.isfile(file_path):
                 os.unlink(file_path)
-        
+
         # Delete output files (keep the final uploaded versions)
         for filename in os.listdir(OUTPUT_DIR):
             if not filename.endswith('_uploaded.mp4'):
                 file_path = os.path.join(OUTPUT_DIR, filename)
                 if os.path.isfile(file_path):
                     os.unlink(file_path)
-        
+
         logger.info("Cleanup complete - deleted all temporary files")
     except Exception as e:
         logger.error(f"Error during cleanup: {e}")
@@ -65,7 +65,7 @@ def create_spedup_version(original_video_path):
     if not os.path.exists(original_video_path):
         logger.error(f"Original video not found: {original_video_path}")
         return None
-    
+
     if not os.path.exists(LOFI_AUDIO_FILE):
         logger.error(f"LOFI audio file not found: {LOFI_AUDIO_FILE}")
         return None
@@ -80,7 +80,7 @@ def create_spedup_version(original_video_path):
         h, m, s = original_duration.split(':')
         original_seconds = float(h) * 3600 + float(m) * 60 + float(s)
         spedup_duration = original_seconds / 4  # 4x speed
-        
+
         # Get duration of LOFI audio
         cmd = [FFMPEG_PATH, '-i', LOFI_AUDIO_FILE]
         result = subprocess.run(cmd, stderr=subprocess.PIPE, text=True)
@@ -97,9 +97,9 @@ def create_spedup_version(original_video_path):
     if max_start <= 0:
         logger.error("LOFI audio is too short for the sped-up video")
         return None
-    
+
     random_start = random.uniform(0, max_start)
-    
+
     # Create output filename
     base_name = os.path.splitext(os.path.basename(original_video_path))[0]
     output_path = os.path.join(OUTPUT_DIR, f"{base_name}_4x_lofi.mp4")
@@ -110,7 +110,7 @@ def create_spedup_version(original_video_path):
         '-i', original_video_path,
         '-i', LOFI_AUDIO_FILE,
         '-filter_complex',
-        f'[0:v]setpts=0.35*PTS,trim=duration={spedup_duration}[v];'  # Force exact duration
+        f'[0:v]setpts=0.15*PTS,trim=duration={spedup_duration}[v];'  # Force exact duration
         f'[1:a]atrim=start={random_start},asetpts=PTS-STARTPTS,adelay=0|0,apad=whole_dur={spedup_duration}[a]',  # Pad audio to match
         '-map', '[v]',
         '-map', '[a]',
@@ -127,7 +127,7 @@ def create_spedup_version(original_video_path):
     logger.info(f"Creating 4x speed version (duration: {spedup_duration:.2f}s) with LOFI audio...")
     try:
         subprocess.run(cmd, check=True)
-        
+
         return output_path
     except subprocess.CalledProcessError as e:
         logger.error(f"Failed to create 4x version: {e}")
@@ -151,7 +151,7 @@ def get_authenticated_service():
         else:
             flow = InstalledAppFlow.from_client_secrets_file(CLIENT_SECRETS_FILE, SCOPES)
             creds = flow.run_local_server(port=0)
-        
+
         with open(TOKEN_FILE, 'w') as token:
             token.write(creds.to_json())
 
@@ -161,7 +161,7 @@ def get_playlist_videos(youtube, playlist_id):
     """Get all videos from a playlist including private/unlisted"""
     videos = []
     next_page_token = None
-    
+
     try:
         while True:
             request = youtube.playlistItems().list(
@@ -171,19 +171,19 @@ def get_playlist_videos(youtube, playlist_id):
                 pageToken=next_page_token
             )
             response = request.execute()
-            
+
             for item in response['items']:
                 video_id = item['contentDetails']['videoId']
                 published_at = item['snippet']['publishedAt']
                 title = item['snippet']['title']
-                
+
                 # Get video details to check privacy status
                 video_request = youtube.videos().list(
                     part="status",
                     id=video_id
                 )
                 video_response = video_request.execute()
-                
+
                 if video_response['items']:
                     privacy_status = video_response['items'][0]['status']['privacyStatus']
                     videos.append({
@@ -192,22 +192,22 @@ def get_playlist_videos(youtube, playlist_id):
                         'title': title,
                         'privacy_status': privacy_status
                     })
-            
+
             next_page_token = response.get('nextPageToken')
             if not next_page_token:
                 break
-                
+
     except HttpError as e:
         logger.error(f"YouTube API error: {e}")
     except Exception as e:
         logger.error(f"Error fetching playlist videos: {e}")
-    
+
     return videos
 
 def filter_august_2025_videos(videos):
     """Filter videos published in August 2025"""
     august_2025_videos = []
-    
+
     for video in videos:
         try:
             published_date = datetime.strptime(video['published_at'], '%Y-%m-%dT%H:%M:%SZ')
@@ -215,10 +215,10 @@ def filter_august_2025_videos(videos):
                 august_2025_videos.append(video)
         except Exception as e:
             logger.error(f"Error parsing date for video {video['id']}: {e}")
-    
+
     # Sort by publication date
     august_2025_videos.sort(key=lambda x: x['published_at'])
-    
+
     return august_2025_videos
 
 def download_video(video_id, filename):
@@ -241,9 +241,9 @@ def combine_videos(video_files, output_filename):
     """Combine multiple videos into one using ffmpeg, upscaling to highest resolution"""
     if not os.path.exists(OUTPUT_DIR):
         os.makedirs(OUTPUT_DIR)
-    
+
     output_path = os.path.join(OUTPUT_DIR, output_filename)
-    
+
     # First pass: Detect highest resolution (same as before)
     max_width = 0
     max_height = 0
@@ -260,12 +260,12 @@ def combine_videos(video_files, output_filename):
                 parts = stream_info[0].split(',')
                 resolution_part = [p for p in parts if any(x in p for x in [' hd', ' sd', 'x', '0x0'])][0].strip()
                 resolution = resolution_part.split(' ')[0]
-                
+
                 if 'x' in resolution:
                     width, height = resolution.split('x')
                     width = ''.join(filter(str.isdigit, width))
                     height = ''.join(filter(str.isdigit, height.split(' ')[0]))
-                    
+
                     if width and height:
                         width = int(width)
                         height = int(height)
@@ -275,19 +275,19 @@ def combine_videos(video_files, output_filename):
         except Exception as e:
             logger.error(f"Error detecting resolution for {video_file}: {e}")
             continue
-    
+
     if max_width == 0 or max_height == 0:
         max_width = 1280
         max_height = 720
         logger.warning(f"Using fallback resolution: {max_width}x{max_height}")
-    
+
     logger.info(f"Upscaling all videos to: {max_width}x{max_height}")
-    
+
     # Create intermediate files with upscaling
     intermediate_dir = os.path.join(OUTPUT_DIR, "intermediate")
     os.makedirs(intermediate_dir, exist_ok=True)
     intermediate_files = []
-    
+
     for idx, video_file in enumerate(video_files):
         intermediate_path = os.path.join(intermediate_dir, f"int_{idx}.mp4")
         cmd = [
@@ -309,11 +309,11 @@ def combine_videos(video_files, output_filename):
         except subprocess.CalledProcessError as e:
             logger.error(f"Failed to process {video_file}: {e}")
             continue
-    
+
     if not intermediate_files:
         logger.error("No valid intermediate files created")
         return None
-    
+
     # Concatenate the processed files
     try:
         # Create concatenation list with absolute paths
@@ -323,18 +323,18 @@ def combine_videos(video_files, output_filename):
                 # Write absolute paths to avoid any relative path confusion
                 abs_path = os.path.abspath(file_path)
                 f.write(f"file '{abs_path}'\n")
-        
+
         # Verify the list file was created correctly
         if not os.path.exists(list_path):
             raise FileNotFoundError(f"Concatenation list file not created: {list_path}")
-        
+
         # Verify the paths in the list file exist
         with open(list_path, 'r') as f:
             for line in f:
                 file_path = line.strip()[6:-1]  # Extract path from "file 'path'"
                 if not os.path.exists(file_path):
                     raise FileNotFoundError(f"File in concat list does not exist: {file_path}")
-        
+
         cmd = [
             FFMPEG_PATH,
             '-f', 'concat',
@@ -415,35 +415,35 @@ def main():
     # Create necessary directories
     os.makedirs(DOWNLOAD_DIR, exist_ok=True)
     os.makedirs(OUTPUT_DIR, exist_ok=True)
-    
+
     # Get authenticated YouTube service
     youtube = get_authenticated_service()
     if not youtube:
         logger.error("Failed to authenticate with YouTube")
         return
-    
+
     # Get playlist ID from user
     playlist_id = "PLvwmjYrN9zHFA4Kr02GLkKxWFI1UnLFRY"
     if not playlist_id:
         logger.error("No playlist ID provided")
         return
-    
+
     # Get videos from playlist
     logger.info(f"Fetching videos from playlist {playlist_id}...")
     videos = get_playlist_videos(youtube, playlist_id)
     if not videos:
         logger.error("No videos found in playlist or error fetching videos")
         return
-    
+
     # Filter for August 2025 videos
     logger.info("Filtering for August 2025 videos...")
     august_videos = filter_august_2025_videos(videos)
     if not august_videos:
         logger.error("No videos found published in August 2025")
         return
-    
+
     logger.info(f"Found {len(august_videos)} videos from August 2025")
-    
+
     # Download videos
     downloaded_files = []
     for idx, video in enumerate(august_videos):
@@ -451,11 +451,11 @@ def main():
         logger.info(f"Downloading {video['title']} ({video['id']})...")
         if download_video(video['id'], filename):
             downloaded_files.append(filename)
-    
+
     if not downloaded_files:
         logger.error("No videos were successfully downloaded")
         return
-    
+
     # Combine videos
     output_filename = "august_2025_compilation.mp4"
     logger.info("Combining videos...")
@@ -463,31 +463,31 @@ def main():
     if not combined_path or not os.path.exists(combined_path):
         logger.error("Failed to combine videos")
         return
-    
+
     # Upload combined video
     title = "August 2025 Video Compilation"
     description = "A compilation of all videos from my playlist published in August 2025.\n\n" \
                  "Automatically generated by a custom python script with ffmpeg."
-    
+
     logger.info("Uploading combined video...")
     upload_response = upload_video(youtube, combined_path, title, description)
-    
+
     if upload_response:
         # Create 4x version with LOFI audio
         spedup_path = create_spedup_version(combined_path)
-        
+
         if spedup_path:
             # Upload the 4x version
             spedup_title = f"4x Speed - {title}"
             spedup_description = f"4x speed version of {title}\n\n{description}"
-            
+
             logger.info("Uploading 4x speed version...")
             upload_video(youtube, spedup_path, spedup_title, spedup_description)
-            
+
             # Rename original files to mark as uploaded
             os.rename(combined_path, combined_path.replace('.mp4', '_uploaded.mp4'))
             os.rename(spedup_path, spedup_path.replace('.mp4', '_uploaded.mp4'))
-        
+
         # Cleanup all temporary files
         cleanup_files()
         logger.info("Process completed successfully!")
